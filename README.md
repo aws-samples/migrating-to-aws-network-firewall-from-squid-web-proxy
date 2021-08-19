@@ -1,12 +1,13 @@
-## migrating-to-aws-network-firewall-from-squid-web-proxy
+## Migrating to AWS Network Firewall from Squid Web Proxy
 
 
 The squid transformation tool helps you to create rule groups based out of a list of domains that you may have in your squid configuration file for your egress filtering.
 
 The resources are launched via the CloudFormation. The stack provisions an event trigger for a given S3 bucket and a lambda function which takes a text file with a list of domains as input. The Lambda function takes in a text file containing a list of domains and transforms that into the domain list within a given AWS Network Firewall Rule group.
-![Squid Conversion Tool](squid/squid__1_.png)
 
-Instructions:
+![Squid Conversion Tool](squid.png)
+
+## Instructions:
 1. Create or designate an S3 bucket which will hold the Lambda function and the text file(s) containing the list of domains.
 2. Upload the Lambda function, squid.zip, to the bucket
 3. Launch the CFN template.
