@@ -99,59 +99,155 @@ Resources:
       Role: !GetAtt LambdaIAMRole.Arn
       Code:
         ZipFile: |
-            from __future__ import print_function
-            import json
-            import boto3
-            import cfnresponse
-            SUCCESS = "SUCCESS"
-            FAILED = "FAILED"
-            print('Loading function')
-            s3 = boto3.resource('s3')
-            def lambda_handler(event, context):
-                print("Received event: " + json.dumps(event, indent=2))
-                responseData={}
-                try:
-                    if event['RequestType'] == 'Delete':
-                        print("Request Type:",event['RequestType'])
-                        Bucket=event['ResourceProperties']['Bucket']
-                        delete_notification(Bucket)
-                        print("Sending response to custom resource after Delete")
-                    elif event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
-                        print("Request Type:",event['RequestType'])
-                        LambdaArn=event['ResourceProperties']['LambdaArn']
-                        Bucket=event['ResourceProperties']['Bucket']
-                        add_notification(LambdaArn, Bucket)
-                        responseData={'Bucket':Bucket}
-                        print("Sending response to custom resource")
-                    responseStatus = 'SUCCESS'
-                except Exception as e:
-                    print('Failed to process:', e)
-                    responseStatus = 'FAILURE'
-                    responseData = {'Failure': 'Something bad happened.'}
-                cfnresponse.send(event, context, responseStatus, responseData)
+                  from __future__ import print_function
+                  import json, logging, sys, os
+                  from pip._internal import main 
+                  main(['install', '-I', '-q', 'boto3', '--target', '/tmp/'])
+                  sys.path.insert(0,'/tmp/')
+                  import boto3
+                  import botocore.exceptions as exceptions
+                  from botocore.exceptions import ClientError
+                  logger = logging.getLogger()
+                  logger.setLevel(logging.INFO)
+                  firewall_client=boto3.client('network-firewall')
+                  def get_existing_rg_info(rg_group_name):
+                      try:
+                          existing_rg_response = firewall_client.describe_rule_group(
+                              RuleGroupName=rg_group_name,    
+                              Type='STATEFUL'
+                          )
+                          print (existing_rg_response)
+                          update_token = json.loads(json.dumps(existing_rg_response))['UpdateToken']
+                          print (update_token)
+                          return (True,update_token)
+                      except Exception as e:
+                          logger.error('Internal failure ' + str(e))
+                          return (False,None)                            
+                      except firewall_client.exceptions.InvalidRequestException as e:
+                          logger.error('Invilid request: ' + str(e))
+                          return (False,None)                            
+                      except firewall_client.exceptions.ResourceNotFoundException as e:
+                          logger.error('Resource not found: ' + str(e))
+                          return (False,None)
+                      except firewall_client.exceptions.ThrottlingException as e:
+                          logger.error('Throttled: ' + str(e))
+                          return (False,None)
+                      except firewall_client.exceptions.InternalServerError as e:
+                          logger.error('Internal Server Error: ' + str(e))
+                          return (False,None)
+                  def lambda_handler(event, context):
+                      message = json.loads(json.dumps(event))
+                      print (message)
+                      print("boto3 version is",boto3.__version__)
+                      squid_domain_list_bucket = os.environ.get('bucket')
+                      squid_domain_list_file = os.environ.get('key')
+                      squid_rule_group_name =os.environ.get('rg_name')
+                      gen_rule_type = os.environ.get('gen_rule_type')
+                      bucket_name = squid_domain_list_bucket                     
+                      key = squid_domain_list_file                                                 
+                      s3 = boto3.resource('s3')
+                      obj = s3.Object(bucket_name, key)
+                      domains=[]
+                      for line in obj.get()['Body']._raw_stream:             
+                          cleanline = str(line.decode('utf-8')).strip()
+                          domains.append(cleanline)
+                      get_rule_group_info = get_existing_rg_info(squid_rule_group_name)
+                      if get_rule_group_info[0]:
+                          print ("updating_rule_group")
+                          #print ("Domain list is:",domains)
+                          try:
+                              response = firewall_client.update_rule_group(
+                                  UpdateToken= get_rule_group_info[1],
+                                  RuleGroup= {
+                                  "RulesSource": 
+                                      {
+                                          "RulesSourceList": {
+                                          "GeneratedRulesType": gen_rule_type,
+                                          "Targets": domains,
+                                          "TargetTypes": 
+                                              [
+                                                  "HTTP_HOST",
+                                                  "TLS_SNI"
+                                              ]
+                                          }
+                                      },
+                                  "RuleVariables": 
+                                      {
+                                          "IPSets": {
+                                              "HOME_NET": {
+                                                  "Definition": [
+                                                      "192.168.0.0/16",
+                                                      "10.0.0.0/8",
+                                                      "172.16.0.0/12"
+                                                  ]
+                                              }
+                                          }
+                                      },
+                                  },
+                                  RuleGroupName= squid_rule_group_name,
+                                  Type= "STATEFUL"
+                              )
+                              print (response)
+                          except Exception as e:
+                              logger.error('Internal failure ' + str(e))           
+                          except firewall_client.exceptions.InvalidRequestException as e:
+                              logger.error('Invilid request: ' + str(e))         
+                          except firewall_client.exceptions.ResourceNotFoundException as e:
+                              logger.error('Resource not found: ' + str(e))            
+                          except firewall_client.exceptions.ThrottlingException as e:
+                              logger.error('Throttled: ' + str(e))                 
+                          except firewall_client.exceptions.InternalServerError as e:
+                              logger.error('Internal Server Error: ' + str(e))             
+                          except firewall_client.exceptions.InvalidTokenException as e:
+                              logger.error('Invalide Token: ' + str(e))
+                      else:
+                          print ("creating_rule_group")
+                          try:
+                              response = firewall_client.create_rule_group(
+                                  RuleGroup= {
+                                  "RulesSource": 
+                                      {
+                                          "RulesSourceList": {
+                                          "GeneratedRulesType": gen_rule_type,   
+                                          "Targets": domains,                 
+                                          "TargetTypes": 
+                                              [
+                                                  "HTTP_HOST",
+                                                  "TLS_SNI"
+                                              ]
+                                          }
+                                      },
+                                  "RuleVariables": 
+                                      {
+                                          "IPSets": {
+                                              "HOME_NET": {
+                                                  "Definition": [
+                                                      "192.168.0.0/16",
+                                                      "10.0.0.0/8",
+                                                      "172.16.0.0/12"
+                                                  ]
+                                              }
+                                          }
+                                      },
+                                  },
+                                  RuleGroupName= squid_rule_group_name,   
+                                  Type= "STATEFUL",
+                                  Capacity=1000
+                              )
+                              print (response)
+                          except Exception as e:
+                              logger.error('Internal failure ' + str(e))              
+                          except firewall_client.exceptions.InvalidRequestException as e:
+                              logger.error('Invilid request: ' + str(e))          
+                          except firewall_client.exceptions.LimitExceededException as e:
+                              logger.error('Limit exceeded: ' + str(e))         
+                          except firewall_client.exceptions.ThrottlingException as e:
+                              logger.error('Throttled: ' + str(e))      
+                          except firewall_client.exceptions.InternalServerError as e:
+                              logger.error('Internal Server Error: ' + str(e)) 
+                          except firewall_client.exceptions.InsufficientCapacityException as e:
+                              logger.error('Insufficient Capacity: ' + str(e))
 
-            def add_notification(LambdaArn, Bucket):
-                bucket_notification = s3.BucketNotification(Bucket)
-                response = bucket_notification.put(
-                  NotificationConfiguration={
-                    'LambdaFunctionConfigurations': [
-                      {
-                          'LambdaFunctionArn': LambdaArn,
-                          'Events': [
-                              's3:ObjectCreated:*'
-                          ]
-                      }
-                    ]
-                  }
-                )
-                print("Put request completed....")
-              
-            def delete_notification(Bucket):
-                bucket_notification = s3.BucketNotification(Bucket)
-                response = bucket_notification.put(
-                    NotificationConfiguration={}
-                )
-                print("Delete request completed....")
       Runtime: python3.7
       Timeout: 50
 
