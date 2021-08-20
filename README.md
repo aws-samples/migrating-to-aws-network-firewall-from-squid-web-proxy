@@ -21,7 +21,11 @@ The resources are launched via the CloudFormation. The stack provisions an event
 
 At this point, you can update the text file as desired and upload it to the S3 bucket. Everytime that specific file is uploaded, S3 event triggers lambda function which will create a new rule group or update an existing one.
 
+## Code Owners
 
+Shiva Vaidyanathan - vaidys@amazon.com
+
+Rashpal Kler - kler@amazon.com
 
 ## Security
 
