@@ -7,7 +7,7 @@ The resources are launched via the CloudFormation. The stack provisions an event
 
 ![Squid Conversion Tool](squid.png)
 
-## Instructions:
+## Instructions for the tool:
 1. Create or designate an S3 bucket which will hold the Lambda function and the text file(s) containing the list of domains.
 2. Upload the Lambda function, squid.zip, to the bucket
 3. Launch the CFN template.
@@ -20,6 +20,12 @@ The resources are launched via the CloudFormation. The stack provisions an event
 6. Use the Lambda's CloudWatch log groups to troubleshoot if the rule group is not created.
 
 At this point, you can update the text file as desired and upload it to the S3 bucket. Everytime that specific file is uploaded, S3 event triggers lambda function which will create a new rule group or update an existing one.
+
+## Instructions for provisioning AWS Network Firewall infrastructure as a standalone template:
+1. Log in to the AWS CloudFormation console. 
+2. Launch a stack using the template squid-to-aws-network-firewall.yml
+3. Provide the necessary parameters.
+4. Acknowledge the IAM permissions and create the stack.
 
 ## Code Owners
 
